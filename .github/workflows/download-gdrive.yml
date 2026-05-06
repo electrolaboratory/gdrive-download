@@ -1,0 +1,33 @@
+name: Download File from Google Drive
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install gdown
+        run: pip install gdown
+
+      - name: Download file from Google Drive
+        # Titik di akhir URL sudah dihapus agar tidak error
+        run: gdown "https://drive.google.com/uc?id=${{ secrets.GDRIVE_FILE_ID }}"
+
+      - name: Verify Download
+        run: ls -la
+
+      - name: Check MD5 Checksum
+        run: md5sum *.zip

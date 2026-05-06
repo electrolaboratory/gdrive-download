@@ -1,0 +1,61 @@
+name: Pixeldrain to Google Drive
+
+on:
+  workflow_dispatch:
+    inputs:
+      pixeldrain_id:
+        description: 'Pixeldrain File ID (Example: if URL is pixeldrain.com/u/1234abcd, enter 1234abcd)'
+        required: true
+        type: string
+
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare Download Directory
+        run: |
+          # Create a staging directory to hold the downloaded files
+          mkdir to_upload 
+
+      - name: Download from Pixeldrain
+        # Pixeldrain API for direct download is /api/file/{ID}
+        # The flags -O -J will automatically save the file using its original name from the server
+        run: |
+          cd to_upload
+          curl -L -O -J "https://pixeldrain.com/api/file/${{ github.event.inputs.pixeldrain_id }}"
+          echo "File successfully downloaded:"
+          ls -la
+
+      - name: Setup Rclone
+        run: |
+          sudo -v ; curl https://rclone.org/install.sh | sudo bash
+
+      - name: Configure Rclone & Upload
+        env:
+          SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
+          FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: |
+          # 1. Save the JSON secret into a temporary file
+          echo "$SA_JSON" > sa.json
+          
+          # 2. Generate the rclone configuration automatically
+          mkdir -p ~/.config/rclone
+          cat << EOF > ~/.config/rclone/rclone.conf
+          [queen]
+          type = drive
+          scope = drive
+          service_account_file = $(pwd)/sa.json
+          root_folder_id = $FOLDER_ID
+          EOF
+          
+          # 3. Upload the contents of the 'to_upload' folder to Google Drive
+          echo "Starting upload to Google Drive..."
+          rclone copy ./to_upload queen:ROM_Builds --progress -v --tpslimit 2 --transfers 1 --retries 5 --drive-chunk-size 64M
+          
+          # 4. Security: Remove the JSON credentials file after completion
+          rm sa.json
+          echo "Upload complete!"

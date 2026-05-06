@@ -28,21 +28,28 @@ jobs:
           echo "File successfully downloaded:"
           ls -la
 
-      - name: Calculate MD5 Checksum
-        id: calc_md5 # Assign an ID to this step to call its output later
+      - name: Get File Info (MD5 & Size)
+        id: file_info # Changed ID to be more generic
         run: |
           cd to_upload
           # Automatically get the downloaded filename (first line)
           FILENAME=$(ls -1 | head -n 1)
+          
           # Calculate MD5 and extract only the hash string
           MD5SUM=$(md5sum "$FILENAME" | awk '{print $1}')
           
+          # Get human-readable file size (e.g., 1.5G, 800M) using ls -lh
+          # awk '{print $5}' extracts the 5th column from the ls output, which is the size
+          FILESIZE=$(ls -lh "$FILENAME" | awk '{print $5}')
+          
           echo "Filename: $FILENAME"
           echo "MD5 Checksum: $MD5SUM"
+          echo "File Size: $FILESIZE"
           
           # Save variables to GITHUB_OUTPUT for the Telegram step
           echo "filename=$FILENAME" >> $GITHUB_OUTPUT
           echo "md5hash=$MD5SUM" >> $GITHUB_OUTPUT
+          echo "filesize=$FILESIZE" >> $GITHUB_OUTPUT
 
       - name: Setup Rclone
         run: |
@@ -62,16 +69,17 @@ jobs:
           echo "Upload complete!"
 
       - name: Send Telegram Notification
-        if: success() # This step ONLY runs if the upload above is successful
+        if: success()
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # Call the output from the 'calc_md5' step above
-          FILE_NAME: ${{ steps.calc_md5.outputs.filename }}
-          MD5_HASH: ${{ steps.calc_md5.outputs.md5hash }}
+          # Call the outputs from the 'file_info' step above
+          FILE_NAME: ${{ steps.file_info.outputs.filename }}
+          MD5_HASH: ${{ steps.file_info.outputs.md5hash }}
+          FILE_SIZE: ${{ steps.file_info.outputs.filesize }}
         run: |
           # Format the message with HTML so it looks neat in Telegram
-          MESSAGE="✅ <b>Transfer Successful!</b>%0A%0A<b>File:</b> <code>${FILE_NAME}</code>%0A<b>MD5:</b> <code>${MD5_HASH}</code>%0A<b>Location:</b> Google Drive (ROM_Builds)"
+          MESSAGE="✅ <b>Transfer Successful!</b>%0A%0A<b>File:</b> <code>${FILE_NAME}</code>%0A<b>Size:</b> ${FILE_SIZE}%0A<b>MD5:</b> <code>${MD5_HASH}</code>%0A<b>Location:</b> Google Drive (ROM_Builds)"
           
           # Send the request to Telegram API
           curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \

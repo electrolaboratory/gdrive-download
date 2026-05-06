@@ -22,12 +22,27 @@ jobs:
           mkdir to_upload 
 
       - name: Download from Pixeldrain
-        # Download file automatically using its original name
         run: |
           cd to_upload
           curl -L -O -J "https://pixeldrain.com/api/file/${{ github.event.inputs.pixeldrain_id }}"
           echo "File successfully downloaded:"
           ls -la
+
+      - name: Calculate MD5 Checksum
+        id: calc_md5 # Assign an ID to this step to call its output later
+        run: |
+          cd to_upload
+          # Automatically get the downloaded filename (first line)
+          FILENAME=$(ls -1 | head -n 1)
+          # Calculate MD5 and extract only the hash string
+          MD5SUM=$(md5sum "$FILENAME" | awk '{print $1}')
+          
+          echo "Filename: $FILENAME"
+          echo "MD5 Checksum: $MD5SUM"
+          
+          # Save variables to GITHUB_OUTPUT for the Telegram step
+          echo "filename=$FILENAME" >> $GITHUB_OUTPUT
+          echo "md5hash=$MD5SUM" >> $GITHUB_OUTPUT
 
       - name: Setup Rclone
         run: |
@@ -37,16 +52,29 @@ jobs:
         env:
           RCLONE_CONF_DATA: ${{ secrets.RCLONE_CONF_SECRET }}
         run: |
-          # 1. Generate the rclone configuration file from GitHub Secrets
           mkdir -p ~/.config/rclone
           echo "$RCLONE_CONF_DATA" > ~/.config/rclone/rclone.conf
           
-          # 2. Upload the contents of the 'to_upload' folder to Google Drive
-          # Note: It uses the remote name "queen" as defined in your conf file.
-          # If you want to upload to a specific folder, change "queen:ROM_Builds" to "queen:Your_Folder_Name"
           echo "Starting upload to Google Drive..."
           rclone copy ./to_upload queen:ROM_Builds --progress -v --tpslimit 2 --transfers 1 --retries 5 --drive-chunk-size 64M
           
-          # 3. Security: Remove the configuration file after completion
           rm ~/.config/rclone/rclone.conf
           echo "Upload complete!"
+
+      - name: Send Telegram Notification
+        if: success() # This step ONLY runs if the upload above is successful
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Call the output from the 'calc_md5' step above
+          FILE_NAME: ${{ steps.calc_md5.outputs.filename }}
+          MD5_HASH: ${{ steps.calc_md5.outputs.md5hash }}
+        run: |
+          # Format the message with HTML so it looks neat in Telegram
+          MESSAGE="✅ <b>Transfer Successful!</b>%0A%0A<b>File:</b> <code>${FILE_NAME}</code>%0A<b>MD5:</b> <code>${MD5_HASH}</code>%0A<b>Location:</b> Google Drive (ROM_Builds)"
+          
+          # Send the request to Telegram API
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            -d text="${MESSAGE}" \
+            -d parse_mode="HTML"

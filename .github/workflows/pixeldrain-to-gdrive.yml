@@ -22,8 +22,7 @@ jobs:
           mkdir to_upload 
 
       - name: Download from Pixeldrain
-        # Pixeldrain API for direct download is /api/file/{ID}
-        # The flags -O -J will automatically save the file using its original name from the server
+        # Download file automatically using its original name
         run: |
           cd to_upload
           curl -L -O -J "https://pixeldrain.com/api/file/${{ github.event.inputs.pixeldrain_id }}"
@@ -36,26 +35,18 @@ jobs:
 
       - name: Configure Rclone & Upload
         env:
-          SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
-          FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+          RCLONE_CONF_DATA: ${{ secrets.RCLONE_CONF_SECRET }}
         run: |
-          # 1. Save the JSON secret into a temporary file
-          echo "$SA_JSON" > sa.json
-          
-          # 2. Generate the rclone configuration automatically
+          # 1. Generate the rclone configuration file from GitHub Secrets
           mkdir -p ~/.config/rclone
-          cat << EOF > ~/.config/rclone/rclone.conf
-          [queen]
-          type = drive
-          scope = drive
-          service_account_file = $(pwd)/sa.json
-          root_folder_id = $FOLDER_ID
-          EOF
+          echo "$RCLONE_CONF_DATA" > ~/.config/rclone/rclone.conf
           
-          # 3. Upload the contents of the 'to_upload' folder to Google Drive
+          # 2. Upload the contents of the 'to_upload' folder to Google Drive
+          # Note: It uses the remote name "queen" as defined in your conf file.
+          # If you want to upload to a specific folder, change "queen:ROM_Builds" to "queen:Your_Folder_Name"
           echo "Starting upload to Google Drive..."
           rclone copy ./to_upload queen:ROM_Builds --progress -v --tpslimit 2 --transfers 1 --retries 5 --drive-chunk-size 64M
           
-          # 4. Security: Remove the JSON credentials file after completion
-          rm sa.json
+          # 3. Security: Remove the configuration file after completion
+          rm ~/.config/rclone/rclone.conf
           echo "Upload complete!"
